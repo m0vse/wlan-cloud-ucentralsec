@@ -17,6 +17,12 @@ namespace OpenWifi {
 				if (AuthService()->IsValidToken(i.second, SecObj.webtoken, SecObj.userinfo,
 												Expired)) {
 					Poco::JSON::Object Obj;
+					if (SecObj.userinfo.userRole != SecurityObjects::ROOT &&
+						GetParameter("accessPolicyVersion") != "1")
+						return UnAuthorized(RESTAPI::Errors::ACCESS_DENIED);
+					SecObj.userinfo.currentPassword.clear();
+					SecObj.userinfo.lastPasswords.clear();
+					SecObj.userinfo.userTypeProprietaryInfo.authenticatorSecret.clear();
 					SecObj.to_json(Obj);
 					return ReturnObject(Obj);
 				}

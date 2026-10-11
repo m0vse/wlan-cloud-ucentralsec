@@ -20,6 +20,15 @@ namespace OpenWifi {
 				if (AuthService()->IsValidApiKey(i.second, SecObj.webtoken, SecObj.userinfo,
 												 Expired, expiresOn, Suspended)) {
 					Poco::JSON::Object Answer;
+					if (SecObj.userinfo.userRole != SecurityObjects::ROOT &&
+						GetParameter("accessPolicyVersion") != "1")
+						return UnAuthorized(RESTAPI::Errors::ACCESS_DENIED);
+					if (!Internal_ && SecObj.userinfo.id != UserInfo_.userinfo.id &&
+						UserInfo_.userinfo.userRole != SecurityObjects::ROOT)
+						return UnAuthorized(RESTAPI::Errors::ACCESS_DENIED);
+					SecObj.userinfo.currentPassword.clear();
+					SecObj.userinfo.lastPasswords.clear();
+					SecObj.userinfo.userTypeProprietaryInfo.authenticatorSecret.clear();
 					SecObj.to_json(Answer);
 					Answer.set("expiresOn", expiresOn);
 					return ReturnObject(Answer);

@@ -9,6 +9,7 @@ if(UNIX AND APPLE)
     list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake)
 endif()
 
+
 if(UNIX AND NOT APPLE)
     set(PostgreSQL_TYPE_INCLUDE_DIR /usr/include/postgresql)
     list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake)
@@ -178,6 +179,8 @@ add_executable( owsec
         src/MessagingTemplates.h src/RESTAPI/RESTAPI_apiKey_handler.cpp src/RESTAPI/RESTAPI_apiKey_handler.h src/storage/orm_apikeys.cpp src/storage/orm_apikeys.h src/RESTAPI/RESTAPI_validate_apikey.cpp src/RESTAPI/RESTAPI_validate_apikey.h src/RESTAPI/RESTAPI_systemSecret_handler.cpp src/RESTAPI/RESTAPI_systemSecret_handler.h src/SecretStore.cpp src/SecretStore.h)
 
 if(NOT SMALL_BUILD)
+    target_sources(owsec PRIVATE src/framework/UserAccessClient.cpp)
+    target_compile_definitions(owsec PRIVATE OPENWIFI_ACCESS_SERVICE="owsec")
     target_link_libraries(owsec PUBLIC
             ${Poco_LIBRARIES}
             ${MySQL_LIBRARIES}

@@ -1,0 +1,7 @@
+FROM openwifi-access-sdk-complete:20261011 AS build
+WORKDIR /access/owsec
+COPY src /access/owsec/src
+COPY cmake /access/owsec/cmake
+COPY CMakeLists.txt build /access/owsec/
+RUN cmake -S . -B /access/owsec-build -DCMAKE_TOOLCHAIN_FILE=/vcpkg/scripts/buildsystems/vcpkg.cmake && \
+    cmake --build /access/owsec-build -j2

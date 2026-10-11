@@ -217,6 +217,8 @@ namespace OpenWifi {
 				auto now = Utils::Now();
 				Expired = (WT.created_ + WT.expires_in_) < now;
 				if (StorageService()->UserDB().GetUserById(UserId, UInfo.userinfo)) {
+					if (Expired || UInfo.userinfo.suspended || UInfo.userinfo.blackListed)
+						return false;
 					UInfo.webtoken = WT;
 					poco_trace(Logger(), fmt::format("TokenValidation success for TID={} Token={}",
 													 TID, Utils::SanitizeToken(CallToken)));
@@ -588,7 +590,7 @@ namespace OpenWifi {
 
 		if (StorageService()->UserDB().GetUserByEmail(UserName, UInfo.userinfo)) {
 
-			if (UInfo.userinfo.suspended) {
+			if (UInfo.userinfo.suspended || UInfo.userinfo.blackListed) {
 				return ACCOUNT_SUSPENDED;
 			}
 
@@ -643,7 +645,7 @@ namespace OpenWifi {
 
 		if (StorageService()->SubDB().GetUserByEmail(UserName, UInfo.userinfo)) {
 
-			if (UInfo.userinfo.suspended) {
+			if (UInfo.userinfo.suspended || UInfo.userinfo.blackListed) {
 				return ACCOUNT_SUSPENDED;
 			}
 
@@ -903,6 +905,7 @@ namespace OpenWifi {
 				return false;
 			Expired = (WT.created_ + WT.expires_in_) < Utils::Now();
 			if (StorageService()->UserDB().GetUserById(UserId, UserInfo)) {
+				if (Expired || UserInfo.suspended || UserInfo.blackListed) return false;
 				WebToken = WT;
 				return true;
 			}
@@ -940,13 +943,16 @@ namespace OpenWifi {
 		std::string UserId;
 		SecurityObjects::WebToken WT;
 		SecurityObjects::ApiKeyEntry ApiKeyEntry;
-		if (StorageService()->ApiKeyDB().GetRecord("apiKey", ApiKey, ApiKeyEntry)) {
+        SecurityObjects::ApiKeyEntryList matches;
+        if (StorageService()->ApiKeyDB().GetRecords(0, 2, matches.apiKeys,
+                StorageService()->ApiKeyDB().OP("apiKey", ORM::EQ, ApiKey)) && matches.apiKeys.size() == 1) {
+            ApiKeyEntry = matches.apiKeys.front();
 			expiresOn = ApiKeyEntry.expiresOn;
-			Expired = ApiKeyEntry.expiresOn < Utils::Now();
+			Expired = ApiKeyEntry.expiresOn <= Utils::Now();
 			if (Expired)
 				return false;
 			if (StorageService()->UserDB().GetUserById(ApiKeyEntry.userUuid, UserInfo)) {
-				if (UserInfo.suspended) {
+				if (UserInfo.suspended || UserInfo.blackListed) {
 					Suspended = true;
 					return false;
 				}

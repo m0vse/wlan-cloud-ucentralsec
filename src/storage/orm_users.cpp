@@ -9,6 +9,10 @@
 #include "framework/MicroServiceFuncs.h"
 #include "framework/RESTAPI_utils.h"
 
+template <>
+void ORM::DB<OpenWifi::UserInfoRecordTuple, OpenWifi::SecurityObjects::UserInfo>::Convert(
+    const OpenWifi::SecurityObjects::UserInfo &, OpenWifi::UserInfoRecordTuple &);
+
 /*
 			std::string,    // Id = 0;
 			std::string,    // name;
@@ -190,13 +194,40 @@ namespace OpenWifi {
 									SecurityObjects::USER_ID_TYPE &Id,
 									const SecurityObjects::UserInfo &UInfo) {
 		try {
-			return UpdateRecord("id", Id, UInfo);
+			return UpdateUserInfoIfPolicyRevision(Id, UInfo, UInfo.securityPolicyChange);
 		} catch (const Poco::Exception &E) {
 			Logger().log(E);
 		}
 		return false;
 	}
 
+	bool BaseUserDB::UpdateUserInfoIfPolicyRevision(SecurityObjects::USER_ID_TYPE &Id,
+        const SecurityObjects::UserInfo &User, uint64_t ExpectedRevision) {
+        try {
+            Poco::Data::Session session = Pool_.get();
+            session.begin();
+            Poco::Data::Statement update(session);
+            UserInfoRecordTuple record;
+            Convert(User, record);
+            auto id = Id;
+            auto revision = ExpectedRevision;
+            const auto statement = "update " + TableName_ + " set " + ConditionalUpdateFields() +
+                " where id=? and securityPolicyChange=?" +
+                (User.securityPolicyChange != ExpectedRevision ? " and userRole <> 'root'" : "");
+            update << ConvertParams(statement), Poco::Data::Keywords::use(record),
+                Poco::Data::Keywords::use(id), Poco::Data::Keywords::use(revision);
+            if (update.execute() != 1) {
+                session.rollback();
+                return false;
+            }
+            session.commit();
+            if (Cache_) Cache_->UpdateCache(User);
+            return true;
+        } catch (const Poco::Exception &error) {
+            Logger().log(error);
+            return false;
+        }
+    }
 	bool BaseUserDB::DeleteUser([[maybe_unused]] const std::string &Admin,
 								const SecurityObjects::USER_ID_TYPE &Id) {
 		return DeleteRecord("id", Id);

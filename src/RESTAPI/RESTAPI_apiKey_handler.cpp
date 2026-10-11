@@ -4,6 +4,8 @@
 
 #include "RESTAPI_apiKey_handler.h"
 #include "RESTAPI/RESTAPI_db_helpers.h"
+#include "Poco/DigestEngine.h"
+#include <openssl/rand.h>
 
 namespace OpenWifi {
 
@@ -116,9 +118,16 @@ namespace OpenWifi {
 
 		NewKey.id = MicroServiceCreateUUID();
 		NewKey.userUuid = user_uuid;
-		NewKey.salt = std::to_string(Utils::Now());
-		NewKey.apiKey = Utils::ComputeHash(NewKey.salt, UserInfo_.userinfo.id,
-										   UserInfo_.webtoken.access_token_);
+        bool unique = false;
+        for (unsigned attempt = 0; attempt < 4 && !unique; ++attempt) {
+            Poco::DigestEngine::Digest entropy(32);
+            if (RAND_bytes(entropy.data(), static_cast<int>(entropy.size())) != 1)
+                return InternalError(RESTAPI::Errors::RecordNotCreated);
+            NewKey.salt = Poco::DigestEngine::digestToHex(entropy);
+            NewKey.apiKey = Utils::ComputeHash(NewKey.salt, NewKey.userUuid, NewKey.id);
+            unique = !DB_.Exists("apiKey", NewKey.apiKey);
+        }
+        if (!unique) return InternalError(RESTAPI::Errors::RecordNotCreated);
 		NewKey.created = Utils::Now();
 
 		if (DB_.CreateRecord(NewKey)) {

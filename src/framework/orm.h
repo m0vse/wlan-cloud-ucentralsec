@@ -1024,6 +1024,7 @@ namespace ORM {
 		}
 
 	  protected:
+		const std::string &ConditionalUpdateFields() const { return UpdateFields_; }
 		std::string TableName_;
 		OpenWifi::DBType Type_;
 		Poco::Data::SessionPool &Pool_;

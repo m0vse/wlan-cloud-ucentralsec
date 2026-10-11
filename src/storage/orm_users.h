@@ -80,6 +80,8 @@ namespace OpenWifi {
 					  const std::string &WhereClause = "");
 		bool UpdateUserInfo(const std::string &Admin, SecurityObjects::USER_ID_TYPE &Id,
 							const SecurityObjects::UserInfo &UInfo);
+		bool UpdateUserInfoIfPolicyRevision(SecurityObjects::USER_ID_TYPE &Id,
+			const SecurityObjects::UserInfo &UInfo, uint64_t ExpectedRevision);
 		bool DeleteUser(const std::string &Admin, const SecurityObjects::USER_ID_TYPE &Id);
 		bool DeleteUsers(const std::string &Admin, const std::string &owner);
 		bool SetLastLogin(const std::string &Id);

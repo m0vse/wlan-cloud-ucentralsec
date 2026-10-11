@@ -13,8 +13,29 @@
 #include "TotpCache.h"
 #include "framework/MicroServiceFuncs.h"
 #include "framework/ow_constants.h"
+#include "framework/UserAccessPolicyJSON.h"
+#include "framework/OpenAPIRequests.h"
+#include "framework/MicroServiceNames.h"
+#include <limits>
 
 namespace OpenWifi {
+
+    // Persist only a checked policy for real canonical entity/venue IDs. This
+    // existing internal authenticated lookup is not a client-supplied ownership
+    // assertion. No policy writes happen when provisioning is unavailable.
+    static bool ValidateAccessPolicy(const std::string &document) {
+        UserAccess::Policy policy;
+        if (!UserAccess::Parse(document, policy)) return false;
+        for (const auto &grant : policy.grants) {
+            OpenAPIRequestGet request(uSERVICE_PROVISIONING,
+                "/api/v1/" + grant.scope.type + "/" + grant.scope.id, {}, 3000);
+            Poco::JSON::Object::Ptr response;
+            if (request.Do(response) != Poco::Net::HTTPServerResponse::HTTP_OK || !response ||
+                !response->has("id") || response->getValue<std::string>("id") != grant.scope.id)
+                return false;
+        }
+        return true;
+    }
 
 	void RESTAPI_user_handler::DoGet() {
 		std::string Id = GetBinding("id", "");
@@ -80,6 +101,7 @@ namespace OpenWifi {
 		}
 
 		SecurityObjects::UserInfo NewUser;
+		NewUser.userRole = SecurityObjects::UNKNOWN;
 		const auto &RawObject = ParsedBody_;
 		if (!NewUser.from_json(RawObject)) {
 			return BadRequest(RESTAPI::Errors::InvalidJSONDocument);
@@ -88,6 +110,17 @@ namespace OpenWifi {
 		if (NewUser.userRole == SecurityObjects::UNKNOWN) {
 			return BadRequest(RESTAPI::Errors::InvalidUserRole);
 		}
+
+        if (!NewUser.securityPolicy.empty()) {
+            if (UserInfo_.userinfo.userRole != SecurityObjects::ROOT ||
+                UserInfo_.userinfo.suspended || NewUser.userRole == SecurityObjects::ROOT)
+                return UnAuthorized(RESTAPI::Errors::ACCESS_DENIED);
+            if (!ValidateAccessPolicy(NewUser.securityPolicy))
+                return BadRequest(RESTAPI::Errors::InvalidJSONDocument);
+            NewUser.securityPolicyChange = OpenWifi::Now();
+        } else {
+            NewUser.securityPolicyChange = 0; // Never trust a client revision.
+        }
 
 		if (UserInfo_.userinfo.userRole == SecurityObjects::ROOT) {
 			NewUser.owner = GetParameter("entity", "");
@@ -167,6 +200,8 @@ namespace OpenWifi {
 			return UnAuthorized(RESTAPI::Errors::ACCESS_DENIED);
 		}
 
+        const auto originalPolicyRevision = Existing.securityPolicyChange;
+
 		if (GetBoolParameter("resetMFA")) {
 			if ((UserInfo_.userinfo.userRole == SecurityObjects::ROOT) ||
 				(UserInfo_.userinfo.userRole == SecurityObjects::ADMIN &&
@@ -209,6 +244,7 @@ namespace OpenWifi {
 		}
 
 		SecurityObjects::UserInfo NewUser;
+		NewUser.userRole = SecurityObjects::UNKNOWN;
 		const auto &RawObject = ParsedBody_;
 		if (!NewUser.from_json(RawObject)) {
 			return BadRequest(RESTAPI::Errors::InvalidJSONDocument);
@@ -226,6 +262,27 @@ namespace OpenWifi {
 				AssignIfPresent(RawObject, "owner", Existing.owner);
 			}
 		}
+
+        const bool accessChanged = RawObject->has("securityPolicy") &&
+                                   NewUser.securityPolicy != Existing.securityPolicy;
+        if (accessChanged) {
+            if (!UserAccess::CanAssign(UserInfo_.userinfo.userRole == SecurityObjects::ROOT,
+                    UserInfo_.userinfo.suspended, UserInfo_.userinfo.id, Existing.id) ||
+                Existing.userRole == SecurityObjects::ROOT)
+                return UnAuthorized(RESTAPI::Errors::ACCESS_DENIED);
+            if (!RawObject->has("expectedPolicyRevision") ||
+                !RawObject->get("expectedPolicyRevision").isInteger() ||
+                RawObject->get("expectedPolicyRevision").type() == typeid(bool) ||
+                RawObject->getValue<uint64_t>("expectedPolicyRevision") != originalPolicyRevision ||
+                originalPolicyRevision == std::numeric_limits<uint64_t>::max())
+                return BadRequest(RESTAPI::Errors::MissingOrInvalidParameters);
+            // Clearing the field would revert an account to legacy access.
+            // Revocation is an explicit version-1 empty grants document instead.
+            if (!ValidateAccessPolicy(NewUser.securityPolicy))
+                return BadRequest(RESTAPI::Errors::InvalidJSONDocument);
+            Existing.securityPolicy = NewUser.securityPolicy;
+            Existing.securityPolicyChange = std::max(Existing.securityPolicyChange + 1, OpenWifi::Now());
+        }
 
 		// The only valid things to change are: changePassword, name,
 		AssignIfPresent(RawObject, "name", Existing.name);
@@ -337,9 +394,16 @@ namespace OpenWifi {
 		}
 
 		Existing.modified = OpenWifi::Now();
-		if (StorageService()->UserDB().UpdateUserInfo(UserInfo_.userinfo.email, Id, Existing)) {
+		if (StorageService()->UserDB().UpdateUserInfoIfPolicyRevision(Id, Existing, originalPolicyRevision)) {
+
+            AuthService()->DeleteUserFromCache(Id);
+            if (accessChanged) {
+                // Log identity and revision, not the policy body or secrets.
+                Logger_.information(fmt::format("User access changed: actor={} target={} revision={}",
+                    UserInfo_.userinfo.id, Id, Existing.securityPolicyChange));
+            }
 			SecurityObjects::UserInfo NewUserInfo;
-			StorageService()->UserDB().GetUserByEmail(UserInfo_.userinfo.email, NewUserInfo);
+			if (!StorageService()->UserDB().GetUserById(Id, NewUserInfo)) return NotFound();
 			Poco::JSON::Object ModifiedObject;
 			Sanitize(UserInfo_, NewUserInfo);
 			NewUserInfo.to_json(ModifiedObject);

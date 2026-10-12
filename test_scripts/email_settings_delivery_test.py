@@ -8,6 +8,9 @@ import socketserver
 import threading
 import time
 import sys
+from email import policy
+from email.parser import Parser
+from email.utils import parseaddr
 
 fixture = runpy.run_path(sys.argv[1])
 http, root, user, check = (fixture[key] for key in ('http', 'root', 'user', 'check'))
@@ -68,16 +71,32 @@ try:
                 'authMethod': 'none', 'passwordAction': 'clear'}
     check(http('PUT', path, settings, root)[0] == 200, 'isolated SMTP settings saved')
     before = http('GET', path, token=root)[1]
+    check(before['senderName'] == '', 'legacy settings without name load as blank')
     status, result = http('POST', path, recipient, root)
     check(status == 200 and result == {'accepted': True}, 'actual SMTP acceptance reported')
     check(len(server.messages) == 1 and 'OpenWiFi test email' in server.messages[0], 'fixed test subject sent exactly once')
     check('operator@example.invalid' in server.envelopes[-1], 'single selected recipient')
     check(http('GET', path, token=root)[1] == before, 'test does not mutate settings')
+    for name in ('OpenWiFi Operations', 'Operations, "Night"', 'Réseau 東京'):
+        settings['senderName'] = name
+        check(http('PUT', path, settings, root)[0] == 200, 'display name saved')
+        check(http('GET', path, token=root)[1]['senderName'] == name, 'display name read back')
+        check(http('POST', path, recipient, root)[0] == 200, 'named SMTP message accepted')
+        message = Parser(policy=policy.default).parsestr(server.messages[-1])
+        check(parseaddr(str(message['From'])) == (name, 'sender@example.invalid'), 'actual From header encodes display name')
+        check(server.envelopes[-2].replace(' ', '') == 'MAILFROM:<sender@example.invalid>',
+              'display name does not alter envelope sender: ' + repr(server.envelopes[-2]))
+    for name in ('bad\r\nBCC: injected@example.invalid', '<other@example.invalid>', 42, 'x' * 256):
+        settings['senderName'] = name
+        check(http('PUT', path, settings, root)[0] == 400, 'invalid display name rejected')
+    settings['senderName'] = ''
+    check(http('PUT', path, settings, root)[0] == 200, 'display name can be cleared')
+    expected_count = len(server.messages)
     server.reject = True
     status, result = http('POST', path, recipient, root)
     check(status == 503 and result.get('accepted') is not True, 'SMTP rejection is not success')
     time.sleep(.3)
-    check(len(server.messages) == 2, 'failed test is not queued or retried')
+    check(len(server.messages) == expected_count + 1, 'failed test is not queued or retried')
 finally:
     server.shutdown()
     server.server_close()

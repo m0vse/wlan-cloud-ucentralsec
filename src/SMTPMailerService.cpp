@@ -181,7 +181,17 @@ namespace OpenWifi {
 			auto Message = std::make_unique<Poco::Net::MailMessage>();
 
 			Recipient = Msg.Attrs.find(RECIPIENT_EMAIL)->second;
-			Message->setSender(TheSender);
+			std::string From=TheSender;
+			if(TheSender==delivery.sender && !delivery.senderName.empty()) {
+				auto name=Poco::Net::MailMessage::encodeWord(delivery.senderName);
+				if(name==delivery.senderName) {
+					std::string quoted="\"";
+					for(char c:name) { if(c=='\\' || c=='\"')quoted+='\\';quoted+=c; }
+					name=quoted+'\"';
+				}
+				From=name+" <"+TheSender+">";
+			}
+			Message->setSender(From);
 			Message->addRecipient(
 				Poco::Net::MailRecipient(Poco::Net::MailRecipient::PRIMARY_RECIPIENT, Recipient));
 			Message->setSubject(Msg.Attrs.find(SUBJECT)->second);

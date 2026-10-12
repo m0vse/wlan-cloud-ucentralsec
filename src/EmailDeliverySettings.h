@@ -7,7 +7,7 @@ namespace OpenWifi {
 struct EmailDeliverySettings {
     bool configured=false, enabled=false;
     unsigned port=0;
-    std::string host, tlsMode, sender, username, authMethod, password;
+    std::string host, tlsMode, sender, senderName, username, authMethod, password;
     Poco::JSON::Object PublicJSON() const;
     Poco::JSON::Object StoredJSON() const;
     static bool ParseUpdate(const Poco::JSON::Object &body, const EmailDeliverySettings &old,

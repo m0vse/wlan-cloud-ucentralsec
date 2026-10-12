@@ -22,7 +22,7 @@ Poco::JSON::Object EmailDeliverySettings::PublicJSON() const {
     Poco::JSON::Object out;
     out.set("configured",configured); out.set("enabled",enabled); out.set("host",host);
     out.set("port",configured?Poco::Dynamic::Var(port):Poco::Dynamic::Var());
-    out.set("tlsMode",tlsMode); out.set("sender",sender); out.set("username",username);
+    out.set("tlsMode",tlsMode); out.set("sender",sender); out.set("senderName",senderName); out.set("username",username);
     out.set("authMethod",authMethod); out.set("passwordSet",!password.empty()); return out;
 }
 Poco::JSON::Object EmailDeliverySettings::StoredJSON() const {
@@ -30,13 +30,19 @@ Poco::JSON::Object EmailDeliverySettings::StoredJSON() const {
 }
 bool EmailDeliverySettings::ParseUpdate(const Poco::JSON::Object &body,const EmailDeliverySettings &old,EmailDeliverySettings &next) {
     try {
-        for(const auto &kv:body) if(!choice(kv.first,{"enabled","host","port","tlsMode","sender","username","authMethod","passwordAction","password"})) return false;
+        for(const auto &kv:body) if(!choice(kv.first,{"enabled","host","port","tlsMode","sender","senderName","username","authMethod","passwordAction","password"})) return false;
         if(!body.has("enabled") || body.get("enabled").type()!=typeid(bool)) return false;
         next=old; next.enabled=body.getValue<bool>("enabled");
         for(auto field:{"host","tlsMode","sender","username","authMethod","passwordAction"})
             if(!body.has(field)||!body.get(field).isString()) return false;
         next.host=body.getValue<std::string>("host"); next.tlsMode=body.getValue<std::string>("tlsMode");
         next.sender=body.getValue<std::string>("sender"); next.username=body.getValue<std::string>("username");
+        // Optional for compatibility with existing saved settings and older clients.
+        if(body.has("senderName")) {
+            if(!body.get("senderName").isString())return false;
+            next.senderName=body.getValue<std::string>("senderName");
+        }
+        if(!clean(next.senderName) || next.senderName.find_first_of("<>")!=std::string::npos)return false;
         next.authMethod=body.getValue<std::string>("authMethod");
         if(!body.has("port") || !body.get("port").isInteger() || body.get("port").type()==typeid(bool)) return false;
         auto port=body.getValue<long long>("port"); if(port<1||port>65535) return false; next.port=port;

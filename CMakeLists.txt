@@ -143,6 +143,8 @@ add_executable( owsec
         src/RESTAPI/RESTAPI_avatar_handler.cpp src/RESTAPI/RESTAPI_avatar_handler.h
         src/RESTAPI/RESTAPI_subavatar_handler.cpp src/RESTAPI/RESTAPI_subavatar_handler.h
         src/RESTAPI/RESTAPI_email_handler.cpp src/RESTAPI/RESTAPI_email_handler.h
+        src/EmailDeliverySettings.cpp src/EmailDeliverySettings.h
+        src/RESTAPI/RESTAPI_email_settings.cpp src/RESTAPI/RESTAPI_email_settings.h
         src/RESTAPI/RESTAPI_sms_handler.cpp src/RESTAPI/RESTAPI_sms_handler.h
         src/RESTAPI/RESTAPI_suboauth2_handler.h src/RESTAPI/RESTAPI_suboauth2_handler.cpp
         src/RESTAPI/RESTAPI_subuser_handler.h src/RESTAPI/RESTAPI_subuser_handler.cpp

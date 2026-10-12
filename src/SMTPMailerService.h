@@ -5,8 +5,8 @@
 #pragma once
 
 #include "Poco/File.h"
-#include "Poco/Net/AcceptCertificateHandler.h"
 #include "Poco/Net/InvalidCertificateHandler.h"
+#include "EmailDeliverySettings.h"
 
 #include "framework/SubSystemServer.h"
 
@@ -123,7 +123,10 @@ namespace OpenWifi {
 		MessageSendStatus SendIt(const MessageEvent &Msg);
 		void LoadMyConfig();
 		void reinitialize(Poco::Util::Application &self) override;
-		bool Enabled() const { return Enabled_; }
+		bool Enabled() const {
+			auto &store=EmailSettingsStore::Instance();if(!store.Available())return false;
+			auto settings=store.Snapshot();return settings.configured?settings.enabled:Enabled_.load();
+		}
 
 		void AddUserVars(MessageAttributes &Attrs);
 		void AddSubVars(MessageAttributes &Attrs);
@@ -142,7 +145,7 @@ namespace OpenWifi {
 		std::list<MessageEvent> PendingMessages_;
 		Poco::Thread SenderThr_;
 		std::atomic_bool Running_ = false;
-		bool Enabled_ = false;
+		std::atomic_bool Enabled_ = false;
 		bool UseHTML_ = false;
 		std::string LogoFilename;
 		std::string SubLogoFilename;

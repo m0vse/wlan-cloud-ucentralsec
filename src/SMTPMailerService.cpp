@@ -10,6 +10,8 @@
 #include "Poco/Net/SMTPClientSession.h"
 #include "Poco/Net/SSLManager.h"
 #include "Poco/Net/SecureSMTPClientSession.h"
+#include "Poco/Net/SecureStreamSocket.h"
+#include "Poco/Net/RejectCertificateHandler.h"
 #include "Poco/Net/StringPartSource.h"
 
 #include "AuthService.h"
@@ -22,6 +24,8 @@
 namespace OpenWifi {
 
 	void SMTPMailerService::LoadMyConfig() {
+		std::lock_guard lock(Mutex_);
+		TemplateDir_ = MicroServiceConfigPath("mailer.templates", MicroServiceDataDirectory());
 		Enabled_ = MicroServiceConfigGetBool("mailer.enabled", false);
 		if (Enabled_) {
 			MailHost_ = MicroServiceConfigGetString("mailer.hostname", "");
@@ -58,6 +62,7 @@ namespace OpenWifi {
 	}
 
 	int SMTPMailerService::Start() {
+		EmailSettingsStore::Instance().Load(MicroServiceDataDirectory()+"/email-settings.json");
 		LoadMyConfig();
 		SenderThr_.start(*this);
 		return 0;
@@ -78,6 +83,7 @@ namespace OpenWifi {
 	bool SMTPMailerService::SendMessage([[maybe_unused]] const std::string &Recipient,
 										const std::string &Name, const MessageAttributes &Attrs,
 										bool Subscriber) {
+		if(!Enabled())return false;
 		std::lock_guard G(Mutex_);
 		PendingMessages_.push_back(MessageEvent{.Posted = OpenWifi::Now(),
 												.LastTry = 0,
@@ -152,12 +158,24 @@ namespace OpenWifi {
 		std::string Recipient;
 
 		try {
+			if(!EmailSettingsStore::Instance().Available())return MessageSendStatus::msg_not_sent_but_do_not_resend;
+			EmailDeliverySettings delivery;
+			std::string templateDir;
+			{
+				std::lock_guard lock(Mutex_);
+				delivery.host=MailHost_;delivery.port=MailHostPort_;delivery.sender=Sender_;
+				delivery.username=SenderLoginUserName_;delivery.password=SenderLoginPassword_;
+				delivery.authMethod=LoginMethod_;delivery.tlsMode="starttls";delivery.enabled=Enabled_;
+				templateDir=TemplateDir_;
+			}
+			auto saved=EmailSettingsStore::Instance().Snapshot();if(saved.configured)delivery=saved;
+			if(!delivery.enabled)return MessageSendStatus::msg_not_sent_but_do_not_resend;
 			auto H1 = Msg.Attrs.find(SENDER);
 			std::string TheSender;
 			if (H1 != Msg.Attrs.end()) {
 				TheSender = H1->second;
 			} else {
-				TheSender = Sender_;
+				TheSender = delivery.sender;
 			}
 
 			auto Message = std::make_unique<Poco::Net::MailMessage>();
@@ -178,7 +196,7 @@ namespace OpenWifi {
 			} else {
 				for (const auto &format : {"txt", "html"}) {
 					std::string Content =
-						Utils::LoadFile(TemplateDir_ + Msg.TemplateName + "." + format);
+						Utils::LoadFile(templateDir + Msg.TemplateName + "." + format);
 					Types::StringPairVec Variables;
 					FillVariables(Msg.Attrs, Variables);
 					Utils::ReplaceVariables(Content, Variables);
@@ -204,35 +222,44 @@ namespace OpenWifi {
 			}
 			*/
 
-			Poco::SharedPtr<Poco::Net::AcceptCertificateHandler> ptrHandler_ =
-				new Poco::Net::AcceptCertificateHandler(false);
-
-			Poco::Net::SecureSMTPClientSession session(MailHost_, MailHostPort_);
-			auto ptrContext = Poco::AutoPtr<Poco::Net::Context>(new Poco::Net::Context(
-				Poco::Net::Context::CLIENT_USE, "", "", "", Poco::Net::Context::VERIFY_RELAXED, 9,
-				true, "ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH"));
-			Poco::Net::SSLManager::instance().initializeClient(nullptr, ptrHandler_, ptrContext);
-			session.login();
-			session.startTLS(ptrContext);
-			session.login(MailHost_, Poco::Net::SecureSMTPClientSession::AUTH_LOGIN,
-						  SenderLoginUserName_, SenderLoginPassword_);
+			// Dedicated verified SMTP context: never replace the global HTTPS client trust.
+			auto context=Poco::AutoPtr<Poco::Net::Context>(new Poco::Net::Context(
+				Poco::Net::Context::TLS_CLIENT_USE,"","","",Poco::Net::Context::VERIFY_STRICT,9,true));
+			context->setInvalidCertificateHandler(new Poco::Net::RejectCertificateHandler(false));
+			std::unique_ptr<Poco::Net::SMTPClientSession> session;
+			if(delivery.tlsMode=="implicit") {
+				Poco::Net::SecureStreamSocket socket(Poco::Net::SocketAddress(delivery.host,delivery.port),delivery.host,context);
+				session=std::make_unique<Poco::Net::SMTPClientSession>(socket);
+			} else if(delivery.tlsMode=="starttls") {
+				auto secure=std::make_unique<Poco::Net::SecureSMTPClientSession>(delivery.host,delivery.port);
+				secure->setTimeout(Poco::Timespan(15,0));secure->login();
+				if(!secure->startTLS(context))throw Poco::Net::SMTPException("SMTP TLS required");
+				session=std::move(secure);
+			} else session=std::make_unique<Poco::Net::SMTPClientSession>(delivery.host,delivery.port);
+			session->setTimeout(Poco::Timespan(15,0));
+			if(delivery.authMethod=="none")session->login();
+			else {
+				auto method=delivery.authMethod=="plain"?Poco::Net::SMTPClientSession::AUTH_PLAIN:
+					delivery.authMethod=="cram-md5"?Poco::Net::SMTPClientSession::AUTH_CRAM_MD5:Poco::Net::SMTPClientSession::AUTH_LOGIN;
+				session->login(delivery.host,method,delivery.username,delivery.password);
+			}
 			/*            std::ofstream
 			   of(MicroServiceDataDirectory()+"/message.txt",std::ios_base::out|std::ios_base::trunc);
 						Message->write(of);
 						of.close();
 			*/
-			session.sendMessage(*Message);
-			session.close();
+			session->sendMessage(*Message);
+			session->close();
 			return MessageSendStatus::msg_sent;
 		} catch (const Poco::Net::SMTPException &S) {
-			Logger().log(S);
+			poco_warning(Logger(),"SMTP delivery rejected; check saved delivery settings.");
 			return MessageSendStatus::msg_not_sent_but_do_not_resend;
 		} catch (const Poco::Exception &E) {
-			Logger().log(E);
+			poco_warning(Logger(),"SMTP delivery unavailable; retry pending.");
 			return MessageSendStatus::msg_not_sent_but_resend;
 		} catch (const std::exception &E) {
 			poco_warning(Logger(),
-						 fmt::format("Cannot send message to:{}, error: {}", Recipient, E.what()));
+						 "SMTP delivery failed.");
 			return MessageSendStatus::msg_not_sent_but_do_not_resend;
 		}
 	}

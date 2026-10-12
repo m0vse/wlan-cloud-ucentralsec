@@ -7,6 +7,7 @@
 #include "RESTAPI/RESTAPI_asset_server.h"
 #include "RESTAPI/RESTAPI_avatar_handler.h"
 #include "RESTAPI/RESTAPI_email_handler.h"
+#include "RESTAPI/RESTAPI_email_settings.h"
 #include "RESTAPI/RESTAPI_oauth2_handler.h"
 #include "RESTAPI/RESTAPI_preferences.h"
 #include "RESTAPI/RESTAPI_signup_handler.h"
@@ -40,7 +41,7 @@ namespace OpenWifi {
 			RESTAPI_oauth2_handler, RESTAPI_user_handler, RESTAPI_users_handler,
 			RESTAPI_system_command, RESTAPI_system_configuration, RESTAPI_asset_server, RESTAPI_system_endpoints_handler,
 			RESTAPI_action_links, RESTAPI_avatar_handler, RESTAPI_subavatar_handler,
-			RESTAPI_email_handler, RESTAPI_sms_handler, RESTAPI_preferences, RESTAPI_subpreferences,
+			RESTAPI_email_handler, RESTAPI_email_settings, RESTAPI_sms_handler, RESTAPI_preferences, RESTAPI_subpreferences,
 			RESTAPI_suboauth2_handler, RESTAPI_subuser_handler, RESTAPI_subusers_handler,
 			RESTAPI_submfa_handler, RESTAPI_totp_handler, RESTAPI_subtotp_handler,
 			RESTAPI_signup_handler, RESTAPI_validate_sub_token_handler,
@@ -57,7 +58,7 @@ namespace OpenWifi {
 			RESTAPI_oauth2_handler, RESTAPI_user_handler, RESTAPI_users_handler,
 			RESTAPI_system_command, RESTAPI_system_configuration, RESTAPI_asset_server, RESTAPI_system_endpoints_handler,
 			RESTAPI_action_links, RESTAPI_avatar_handler, RESTAPI_subavatar_handler,
-			RESTAPI_email_handler, RESTAPI_sms_handler, RESTAPI_preferences, RESTAPI_subpreferences,
+			RESTAPI_email_handler, RESTAPI_email_settings, RESTAPI_sms_handler, RESTAPI_preferences, RESTAPI_subpreferences,
 			RESTAPI_suboauth2_handler, RESTAPI_subuser_handler, RESTAPI_subusers_handler,
 			RESTAPI_submfa_handler, RESTAPI_totp_handler, RESTAPI_subtotp_handler,
 			RESTAPI_validate_sub_token_handler, RESTAPI_validate_token_handler,

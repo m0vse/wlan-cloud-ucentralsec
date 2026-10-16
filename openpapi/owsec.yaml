@@ -332,6 +332,10 @@ components:
         email:
           type: string
           format: email
+        contactMobileNumber:
+          type: string
+          pattern: '^$|^\+[1-9][0-9]{6,14}$'
+          description: Optional profile contact, separate from MFA numbers. Empty clears; omitted updates preserve it.
         validated:
           type: boolean
         validationEmail:

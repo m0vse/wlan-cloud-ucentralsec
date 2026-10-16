@@ -102,6 +102,8 @@ namespace OpenWifi {
 			std::vector<MobilePhoneNumber> mobiles;
 			struct MfaAuthInfo mfa;
 			std::string authenticatorSecret;
+			// Profile contact only: never an MFA enrolment or verified number.
+			std::string contactMobileNumber;
 
 			void to_json(Poco::JSON::Object &Obj) const;
 			bool from_json(const Poco::JSON::Object::Ptr &Obj);

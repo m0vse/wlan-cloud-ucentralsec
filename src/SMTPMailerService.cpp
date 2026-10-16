@@ -16,12 +16,30 @@
 
 #include "AuthService.h"
 #include "SMTPMailerService.h"
+#include "SMSDeliverySettings.h"
 
 #include "fmt/format.h"
 #include "framework/MicroServiceFuncs.h"
 #include "framework/utils.h"
 
 namespace OpenWifi {
+	namespace {
+	// Alerts use bounded TCP connection setup without changing legacy mail/MFA.
+	// Explicit hostname passed at STARTTLS keeps certificate validation on the
+	// configured DNS name even though the initial connection was pre-established.
+	class AlertSMTPSession : public Poco::Net::SMTPClientSession {
+	public:
+		explicit AlertSMTPSession(const Poco::Net::StreamSocket &socket)
+			: Poco::Net::SMTPClientSession(socket) {}
+		void StartTLS(Poco::Net::Context::Ptr context,const std::string &hostname) {
+			socket().sendMessage("STARTTLS");
+			std::string response;
+			if(socket().receiveStatusMessage(response)!=220)
+				throw Poco::Net::SMTPException("SMTP TLS required");
+			socket()=Poco::Net::SecureStreamSocket::attach(socket(),hostname,context);
+		}
+	};
+	}
 
 	void SMTPMailerService::LoadMyConfig() {
 		std::lock_guard lock(Mutex_);
@@ -63,6 +81,7 @@ namespace OpenWifi {
 
 	int SMTPMailerService::Start() {
 		EmailSettingsStore::Instance().Load(MicroServiceDataDirectory()+"/email-settings.json");
+		SMSSettingsStore::Instance().Load(MicroServiceDataDirectory()+"/sms-settings.json");
 		LoadMyConfig();
 		SenderThr_.start(*this);
 		return 0;
@@ -197,12 +216,16 @@ namespace OpenWifi {
 			Message->setSubject(Msg.Attrs.find(SUBJECT)->second);
 			Message->setContentType("multipart/alternative");
 
-			poco_information(Logger(),
-							 fmt::format("Sending message to:{} from {}", Recipient, TheSender));
+			if(!Msg.PrivateAlert) {
+				poco_information(Logger(),fmt::format("Sending message to:{} from {}", Recipient, TheSender));
+			}
 
 			if (Msg.Attrs.find(TEXT) != Msg.Attrs.end()) {
 				std::string Content = Msg.Attrs.find(TEXT)->second;
-				Message->addContent(new Poco::Net::StringPartSource(Content));
+				Message->addContent(new Poco::Net::StringPartSource(Content,
+					Msg.PrivateAlert ? "text/plain; charset=UTF-8" : "text/plain"));
+				auto html=Msg.Attrs.find(ALERT_HTML);
+				if(html!=Msg.Attrs.end())Message->addContent(new Poco::Net::StringPartSource(html->second,"text/html; charset=UTF-8"));
 			} else {
 				for (const auto &format : {"txt", "html"}) {
 					std::string Content =
@@ -237,7 +260,21 @@ namespace OpenWifi {
 				Poco::Net::Context::TLS_CLIENT_USE,"","","",Poco::Net::Context::VERIFY_STRICT,9,true));
 			context->setInvalidCertificateHandler(new Poco::Net::RejectCertificateHandler(false));
 			std::unique_ptr<Poco::Net::SMTPClientSession> session;
-			if(delivery.tlsMode=="implicit") {
+			if(Msg.PrivateAlert) {
+				Poco::Net::StreamSocket socket;
+				socket.connect(Poco::Net::SocketAddress(delivery.host,delivery.port),Poco::Timespan(15,0));
+				socket.setReceiveTimeout(Poco::Timespan(15,0));
+				socket.setSendTimeout(Poco::Timespan(15,0));
+				if(delivery.tlsMode=="implicit") {
+					auto secure=Poco::Net::SecureStreamSocket::attach(socket,delivery.host,context);
+					session=std::make_unique<AlertSMTPSession>(secure);
+				} else {
+					auto alert=std::make_unique<AlertSMTPSession>(socket);
+					alert->setTimeout(Poco::Timespan(15,0));
+					if(delivery.tlsMode=="starttls") {alert->login();alert->StartTLS(context,delivery.host);}
+					session=std::move(alert);
+				}
+			} else if(delivery.tlsMode=="implicit") {
 				Poco::Net::SecureStreamSocket socket(Poco::Net::SocketAddress(delivery.host,delivery.port),delivery.host,context);
 				session=std::make_unique<Poco::Net::SMTPClientSession>(socket);
 			} else if(delivery.tlsMode=="starttls") {

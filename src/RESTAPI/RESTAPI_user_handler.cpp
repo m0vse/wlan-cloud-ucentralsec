@@ -9,6 +9,7 @@
 #include "RESTAPI/RESTAPI_db_helpers.h"
 #include "SMSSender.h"
 #include "SMTPMailerService.h"
+#include "SMSDeliverySettings.h"
 #include "StorageService.h"
 #include "TotpCache.h"
 #include "framework/MicroServiceFuncs.h"
@@ -106,6 +107,12 @@ namespace OpenWifi {
 		if (!NewUser.from_json(RawObject)) {
 			return BadRequest(RESTAPI::Errors::InvalidJSONDocument);
 		}
+		if(RawObject->has("contactMobileNumber")) {
+			if(!RawObject->get("contactMobileNumber").isString() ||
+			   (!NewUser.userTypeProprietaryInfo.contactMobileNumber.empty() &&
+			    !AlertPhoneNumber(NewUser.userTypeProprietaryInfo.contactMobileNumber)))
+				return BadRequest(RESTAPI::Errors::MissingOrInvalidParameters);
+		} else NewUser.userTypeProprietaryInfo.contactMobileNumber.clear();
 
 		if (NewUser.userRole == SecurityObjects::UNKNOWN) {
 			return BadRequest(RESTAPI::Errors::InvalidUserRole);
@@ -285,6 +292,13 @@ namespace OpenWifi {
         }
 
 		// The only valid things to change are: changePassword, name,
+		if(RawObject->has("contactMobileNumber")) {
+			if(!RawObject->get("contactMobileNumber").isString() ||
+			   (!NewUser.userTypeProprietaryInfo.contactMobileNumber.empty() &&
+			    !AlertPhoneNumber(NewUser.userTypeProprietaryInfo.contactMobileNumber)))
+				return BadRequest(RESTAPI::Errors::MissingOrInvalidParameters);
+			Existing.userTypeProprietaryInfo.contactMobileNumber=NewUser.userTypeProprietaryInfo.contactMobileNumber;
+		}
 		AssignIfPresent(RawObject, "name", Existing.name);
 		AssignIfPresent(RawObject, "description", Existing.description);
 		AssignIfPresent(RawObject, "location", Existing.location);
@@ -406,6 +420,10 @@ namespace OpenWifi {
 			if (!StorageService()->UserDB().GetUserById(Id, NewUserInfo)) return NotFound();
 			Poco::JSON::Object ModifiedObject;
 			Sanitize(UserInfo_, NewUserInfo);
+			// Contact-only edits must not disclose MFA secrets. Explicit MFA
+			// enrolment requests retain their existing response contract.
+			if(RawObject->has("contactMobileNumber") && !RawObject->has("userTypeProprietaryInfo"))
+				NewUserInfo.userTypeProprietaryInfo.authenticatorSecret.clear();
 			NewUserInfo.to_json(ModifiedObject);
 			return ReturnObject(ModifiedObject);
 		}

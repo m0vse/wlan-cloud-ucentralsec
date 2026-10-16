@@ -45,7 +45,8 @@ namespace OpenWifi {
 		TRANSFER_REASON,
 		SERIAL_NUMBER,
 		ORIGINAL_ENTITY_NAME,
-		UUID
+		UUID,
+		ALERT_HTML
 	};
 
 	static const std::map<MESSAGE_ATTRIBUTES, const std::string> MessageAttributeMap{
@@ -81,7 +82,7 @@ namespace OpenWifi {
 		{TRANSFER_REASON, "TRANSFER_REASON"},
 		{SERIAL_NUMBER, "SERIAL_NUMBER"},
 		{ORIGINAL_ENTITY_NAME, "ORIGINAL_ENTITY_NAME"},
-		{UUID, "UUID"}};
+		{UUID, "UUID"}, {ALERT_HTML, "ALERT_HTML"}};
 
 	inline const std::string &MessageAttributeToVar(MESSAGE_ATTRIBUTES Attr) {
 		static const std::string EmptyString{};
@@ -112,6 +113,7 @@ namespace OpenWifi {
 			std::string TemplateName;
 			MessageAttributes Attrs;
 			bool Subscriber = false;
+			bool PrivateAlert = false;
 		};
 
 		void run() override;

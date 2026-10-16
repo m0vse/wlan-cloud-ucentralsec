@@ -199,6 +199,7 @@ namespace OpenWifi::SecurityObjects {
 		field_to_json(Obj, "mobiles", mobiles);
 		field_to_json(Obj, "mfa", mfa);
 		field_to_json(Obj, "authenticatorSecret", authenticatorSecret);
+		field_to_json(Obj, "contactMobileNumber", contactMobileNumber);
 	}
 
 	bool UserLoginLoginExtensions::from_json(const Poco::JSON::Object::Ptr &Obj) {
@@ -206,6 +207,7 @@ namespace OpenWifi::SecurityObjects {
 			field_from_json(Obj, "mobiles", mobiles);
 			field_from_json(Obj, "mfa", mfa);
 			field_from_json(Obj, "authenticatorSecret", authenticatorSecret);
+			field_from_json(Obj, "contactMobileNumber", contactMobileNumber);
 			return true;
 		} catch (...) {
 			std::cout << "Cannot parse: UserLoginLoginExtensions" << std::endl;
@@ -273,7 +275,12 @@ namespace OpenWifi::SecurityObjects {
 		field_to_json(Obj, "suspended", suspended);
 		field_to_json(Obj, "blackListed", blackListed);
 		field_to_json<USER_ROLE>(Obj, "userRole", userRole, UserTypeToString);
-		field_to_json(Obj, "userTypeProprietaryInfo", userTypeProprietaryInfo);
+		// Keep the public profile contact separate from the MFA editor payload.
+		Poco::JSON::Object loginInfo;
+		userTypeProprietaryInfo.to_json(loginInfo);
+		loginInfo.remove("contactMobileNumber");
+		Obj.set("userTypeProprietaryInfo",loginInfo);
+		field_to_json(Obj, "contactMobileNumber", userTypeProprietaryInfo.contactMobileNumber);
 		field_to_json(Obj, "securityPolicy", securityPolicy);
 		field_to_json(Obj, "securityPolicyChange", securityPolicyChange);
 		field_to_json(Obj, "currentPassword", currentPassword);
@@ -301,6 +308,10 @@ namespace OpenWifi::SecurityObjects {
 			field_from_json<USER_ROLE>(Obj, "userRole", userRole, UserTypeFromString);
 			field_from_json(Obj, "securityPolicy", securityPolicy);
 			field_from_json(Obj, "userTypeProprietaryInfo", userTypeProprietaryInfo);
+			if(Obj->has("contactMobileNumber")) {
+				if(!Obj->get("contactMobileNumber").isString())return false;
+				userTypeProprietaryInfo.contactMobileNumber=Obj->getValue<std::string>("contactMobileNumber");
+			}
 			field_from_json(Obj, "validationDate", validationDate);
 			field_from_json(Obj, "creationDate", creationDate);
 			field_from_json(Obj, "lastLogin", lastLogin);
